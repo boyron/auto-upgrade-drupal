@@ -5,10 +5,14 @@ usage() {
 
 Options:
   [-c | --upgrade-core]     [optional] includes core upgrade, if any
+  [-s | --secure-only]      [optional] only update modules which have security upgrade
   [-m | --merge-changes]    [optional] git merge changes with current branch
+  [-i | --ignore-list]      [optional] ignore modules
   [-h | --help]             shows this usage message
 
-Example: $0 -c -m" 
+Example: 
+$0 -c -m
+$0 -i \"ckeditor apachesolr\"" 
 }
 
 strindex() { 
@@ -26,11 +30,19 @@ core_upgrade_available="false"
 core_upgrade_requested="false"
 upgrade_core="false"
 merge_changes="false"
+ignore_list=""
+secure_upgrade_only="false"
 
 while [ "$1" != "" ]; do
     case $1 in
+        -i | --ignore-list )    ignore_list=$2 
+                                shift 2
+                                ;;                  
         -c | --upgrade-core )   shift
                                 core_upgrade_requested="true"
+                                ;;
+        -s | --secure-only )    shift
+                                secure_upgrade_only="true"
                                 ;;
         -m | --merge-changes )  shift
                                 merge_changes="true"
@@ -41,8 +53,26 @@ while [ "$1" != "" ]; do
         * )                     usage
                                 exit 1
     esac
-    shift
 done
+
+project_is_in_ignore_list() {
+
+  #No Ignore list? return false
+  if [ ${#ignore_list} -lt 1 ]
+  then
+    echo "false"
+  fi
+
+  prj=$1
+
+  p=$( strindex $ignore_list $prj )
+  if [ $p -gt -1 ]
+  then
+    echo "true"
+  else
+    echo "false"
+  fi
+}
 
 available_upgrades=$(drush up --pipe)
 declare -a list=( $available_upgrades )
@@ -64,7 +94,26 @@ do
     fi
     continue
   fi
-  
+
+  #Check if developer wants to ignore this project upgrade
+  ignore=$( project_is_in_ignore_list $project)
+  if [ "$ignore" == "true" ]
+  then
+    continue
+  fi
+
+  #Always ignore ckeditor
+  if [ "$project" == "ckeditor" ]
+  then
+    continue
+  fi
+
+  #Google analytics module name conflict fix
+  if [ "$project" == "google_analytics" ]
+  then
+    project="googleanalytics"
+  fi
+
   #get drupal directory (dd) for the project
   dd=`drush dd $project`
   
@@ -84,6 +133,12 @@ then
   exit 2
 fi
 
+upcmdoptions=""
+if [ "$secure_upgrade_only" == "true" ]
+then
+  upcmdoptions=" --security-only"
+fi
+
 #Step 2: Create a git branch
 ##############################
 #There is something to upgrade
@@ -93,12 +148,12 @@ git_branch=${g_b:2}
 git checkout -b Upgrade$starttime
 
 #Step 3: Run upgrades
-############
+##############################
 if [ ${#contribs2upgrade} -gt 1 ]
 then
   #Run the upgrade command. 
   #this will optionally keep a backup of each module upgaded inside ~/drush_backups dir
-  drush up $contribs2upgrade -y
+  drush up $contribs2upgrade $upcmdoptions -y
   
   #git commit and push files
   git add $dirs2add2git
@@ -112,7 +167,7 @@ then
   #@TODO shall we merge .htaccess and robots.txt modifications?
   cp robots.txt robots.txt.BAK
   cp .htaccess htaccess.BAK
-  drush up drupal -y
+  drush up drupal $upcmdoptions -y
   mv robots.txt.BAK robots.txt
   mv htaccess.BAK .htaccess
 
@@ -134,3 +189,4 @@ then
   git merge Upgrade$starttime
   git push -u origin $git_branch
 fi
+
