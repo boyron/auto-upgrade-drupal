@@ -38,6 +38,7 @@ upgrade_core="false"
 merge_changes="false"
 ignore_list=""
 secure_upgrade_only="false"
+
 pressflow="false"
 
 while [ "$1" != "" ]; do
