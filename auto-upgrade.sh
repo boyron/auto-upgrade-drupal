@@ -8,12 +8,14 @@ Options:
   [-c | --upgrade-core]     [optional] includes core upgrade, if any
   [-s | --secure-only]      [optional] only update modules which have security upgrade
   [-m | --merge-changes]    [optional] git merge changes with current branch
-  [-i | --ignore-list]      [optional] ignore modules
+  [-i | --ignore-list]      [optional] ignore modules; comma separated; without space
+  [-u | --uri]              [optional] in case of multi-site, provide URI. e.g.: -u blog.example.com
   [-h | --help]             shows this usage message
 
 Example: 
 $0 -c -m
-$0 -i \"ckeditor apachesolr\"" 
+$0 -i \"ckeditor apachesolr\"
+$0 -u blog.example.com"
 }
 
 strindex() { 
@@ -38,8 +40,8 @@ upgrade_core="false"
 merge_changes="false"
 ignore_list=""
 secure_upgrade_only="false"
-
 pressflow="false"
+uri=""
 
 while [ "$1" != "" ]; do
     case $1 in
@@ -56,6 +58,10 @@ while [ "$1" != "" ]; do
                                 secure_upgrade_only="true"
                                 ;;
         -m | --merge-changes )  shift
+                                merge_changes="true"
+                                ;;
+        -u | --uri )            uri=$2
+                                shift 2
                                 merge_changes="true"
                                 ;;
         -h | --help )           usage
@@ -99,7 +105,19 @@ upgrade_pressflow() {
   drush updb --user=1 -y
 }
 
-available_upgrades=$(drush upc --user=1 --pipe)
+uri_arg=""
+if [ ${#uri} -gt 1 ]
+then
+  uri_arg="--uri=$uri"
+fi
+#echo $uri_arg
+#echo "pressflow=$pressflow"
+#echo "core_upgrade_requested=$core_upgrade_requested"
+#echo "secure_upgrade_only=$secure_upgrade_only"
+#echo "merge_changes=$merge_changes"
+#echo "ignore_list=$ignore_list"
+#exit 2
+available_upgrades=$(drush upc $uri_arg --user=1 --pipe)
 declare -a list=( $available_upgrades )
 
 #Step 1: list projects to upgrade
@@ -140,7 +158,7 @@ do
   fi
 
   #get drupal directory (dd) for the project
-  dd=`drush dd $project --user=1`
+  dd=`drush dd $project $uri_arg --user=1`
   
   #the script will only upgrade projects from contrib folder
   pos=$( strindex $dd contrib )
@@ -178,7 +196,7 @@ if [ ${#contribs2upgrade} -gt 1 ]
 then
   #Run the upgrade command. 
   #this will optionally keep a backup of each module upgaded inside ~/drush_backups dir
-  drush up $contribs2upgrade $upcmdoptions --user=1 -y
+  drush up $contribs2upgrade $upcmdoptions $uri_arg --user=1 -y
   
   #git commit and push files
   git add $dirs2add2git
@@ -196,7 +214,7 @@ then
   then
     upgrade_pressflow
   else
-    drush up drupal $upcmdoptions --user=1 -y
+    drush up drupal $upcmdoptions $uri_arg --user=1 -y
   fi
   mv robots.txt.BAK robots.txt
   mv htaccess.BAK .htaccess
