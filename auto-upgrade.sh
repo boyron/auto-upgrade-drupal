@@ -4,6 +4,7 @@ usage() {
   echo "usage: $0 
 
 Options:
+  [-p | --pressflow]        [optional] the site is in pressflow6
   [-c | --upgrade-core]     [optional] includes core upgrade, if any
   [-s | --secure-only]      [optional] only update modules which have security upgrade
   [-m | --merge-changes]    [optional] git merge changes with current branch
@@ -21,6 +22,11 @@ strindex() {
 }
 
 starttime=`date +"%Y%m%d%H%M%S"`
+dbstring=`drush status --user=1 | grep "Database name"`
+project_db_name=${dbstring:36}
+drupal_version_string=`drush status --user=1 | grep "Drupal version"`
+drupal_version=${drupal_version_string:36}
+drupal_version_major=${drupal_version:0:1}
 
 #cd project_docroot
 
@@ -32,12 +38,16 @@ upgrade_core="false"
 merge_changes="false"
 ignore_list=""
 secure_upgrade_only="false"
+pressflow="false"
 
 while [ "$1" != "" ]; do
     case $1 in
         -i | --ignore-list )    ignore_list=$2 
                                 shift 2
                                 ;;                  
+        -p | --pressflow )      shift
+                                pressflow="true"
+                                ;;
         -c | --upgrade-core )   shift
                                 core_upgrade_requested="true"
                                 ;;
@@ -74,7 +84,21 @@ project_is_in_ignore_list() {
   fi
 }
 
-available_upgrades=$(drush up --pipe)
+upgrade_pressflow() {
+  wget --no-check-certificate https://github.com/pressflow/6/archive/master.zip
+  unzip master
+  mkdir -p ~/drush-backups/$project_db_name/$starttime/pressflow
+  cp -r * ~/drush-backups/$project_db_name/$starttime/pressflow/
+
+  rm -r includes misc modules profiles scripts themes
+
+  mv 6-master/* ./
+
+  rm master
+  drush updb --user=1 -y
+}
+
+available_upgrades=$(drush upc --user=1 --pipe)
 declare -a list=( $available_upgrades )
 
 #Step 1: list projects to upgrade
@@ -115,7 +139,7 @@ do
   fi
 
   #get drupal directory (dd) for the project
-  dd=`drush dd $project`
+  dd=`drush dd $project --user=1`
   
   #the script will only upgrade projects from contrib folder
   pos=$( strindex $dd contrib )
@@ -128,7 +152,7 @@ do
 done
 
 #Exit - if there is nothing to upgrade
-if [ ${#contribs2upgrade} -lt 1 ] && [ $upgrade_core == "false"]
+if [ ${#contribs2upgrade} -lt 1 ] && [ $upgrade_core == "false" ]
 then
   exit 2
 fi
@@ -153,7 +177,7 @@ if [ ${#contribs2upgrade} -gt 1 ]
 then
   #Run the upgrade command. 
   #this will optionally keep a backup of each module upgaded inside ~/drush_backups dir
-  drush up $contribs2upgrade $upcmdoptions -y
+  drush up $contribs2upgrade $upcmdoptions --user=1 -y
   
   #git commit and push files
   git add $dirs2add2git
@@ -167,13 +191,24 @@ then
   #@TODO shall we merge .htaccess and robots.txt modifications?
   cp robots.txt robots.txt.BAK
   cp .htaccess htaccess.BAK
-  drush up drupal $upcmdoptions -y
+  if [ "$pressflow" == "true" ]
+  then
+    upgrade_pressflow
+  else
+    drush up drupal $upcmdoptions --user=1 -y
+  fi
   mv robots.txt.BAK robots.txt
   mv htaccess.BAK .htaccess
 
   #git commit and push files
-  git add includes misc modules profiles scripts themes authorize.php cron.php index.php update.php web.config xmlrpc.php 
-  git commit -m "Auto upgrade (core) Upgrade$starttime" includes misc modules profiles scripts themes authorize.php cron.php index.php update.php web.config xmlrpc.php
+
+  if [ $drupal_version_major == "6" ]; then
+    git add includes misc modules profiles scripts themes cron.php index.php update.php xmlrpc.php 
+    git commit -m "Auto upgrade (core) Upgrade$starttime" includes misc modules profiles scripts themes cron.php index.php update.php xmlrpc.php
+  else
+    git add includes misc modules profiles scripts themes authorize.php cron.php index.php update.php web.config xmlrpc.php 
+    git commit -m "Auto upgrade (core) Upgrade$starttime" includes misc modules profiles scripts themes authorize.php cron.php index.php update.php web.config xmlrpc.php
+  fi
 fi
 
 #Step 4: Commit/Push changes
@@ -185,6 +220,7 @@ git push -u origin Upgrade$starttime
 if [ "$merge_changes" == "true" ]
 then
   git checkout $git_branch
+  git branch -u origin $git_branch
   git pull
   git merge Upgrade$starttime
   git push -u origin $git_branch
