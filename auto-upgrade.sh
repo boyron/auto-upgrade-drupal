@@ -20,9 +20,6 @@ starttime=`date +"%Y%m%d%H%M%S"`
 
 #cd project_docroot
 
-available_upgrades=$(drush up --pipe)
-declare -a list=( $available_upgrades )
-
 contribs2upgrade=""
 dirs2add2git=""
 core_upgrade_available="false"
@@ -46,6 +43,9 @@ while [ "$1" != "" ]; do
     esac
     shift
 done
+
+available_upgrades=$(drush up --pipe)
+declare -a list=( $available_upgrades )
 
 #Step 1: list projects to upgrade
 ##############################
